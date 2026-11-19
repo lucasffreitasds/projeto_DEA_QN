@@ -1,0 +1,11 @@
+__pycache__/
+.ipynb_checkpoints/
+
+# senha do técnico (nunca versionar)
+.streamlit/secrets.toml
+
+# planilha publicada pelo técnico no painel
+dados/
+
+# etiqueta do Windows ao copiar arquivos (Zone.Identifier)
+*:Zone.Identifier
