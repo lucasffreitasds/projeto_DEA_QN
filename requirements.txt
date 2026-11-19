@@ -1,0 +1,15 @@
+# --- pipeline DEA (dea.py) e painel (app.py) ---
+pandas==3.0.5
+numpy==2.5.2
+scipy==1.18.1
+scikit-learn==1.9.0
+Pyfrontier==1.1.1
+PuLP==3.3.2
+openpyxl==3.1.5
+plotly==7.1.0
+streamlit==1.66.0
+
+# --- só para o notebook ---
+matplotlib==3.11.1
+seaborn==0.13.2
+ipykernel==7.3.0
