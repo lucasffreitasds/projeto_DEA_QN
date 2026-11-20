@@ -215,7 +215,9 @@ aba_geral, aba_ficha, aba_escala, aba_atracoes, aba_metodo = st.tabs(
 # ======================================================================= 1. visão geral
 with aba_geral:
     comp = resultado['comparacao'].copy()
-    comp['ganho_bcc'] = comp['evento'].map(resultado['bcc'].set_index('evento')[COL_GANHO])
+    bcc_idx = resultado['bcc'].set_index('evento')
+    comp['ganho_bcc'] = comp['evento'].map(bcc_idx[COL_GANHO])
+    comp['ganho_bcc_%'] = comp['evento'].map(bcc_idx[COL_GANHO_PCT])
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric('Eventos analisados', len(comp))
@@ -229,11 +231,11 @@ with aba_geral:
     ranking = comp.sort_values('CCR')
     fig = px.bar(ranking, x='CCR', y='evento', orientation='h', color='problema_principal',
                  color_discrete_map=CORES, category_orders={'problema_principal': list(CORES)},
-                 custom_data=['BCC', 'escala', 'retorno', COL_GANHO],
+                 custom_data=['BCC', 'escala', 'retorno', 'ganho_bcc'],
                  labels={'problema_principal': 'Diagnóstico', 'evento': '', 'CCR': 'Eficiência global (CCR)'})
     fig.update_traces(hovertemplate='<b>%{y}</b><br>CCR: %{x:.3f}<br>BCC: %{customdata[0]:.3f}'
                                     '<br>Escala: %{customdata[1]:.3f} (%{customdata[2]})'
-                                    f'<br>{NOME_GANHO}: R$ %{{customdata[3]:,.0f}}<extra></extra>',
+                                    f'<br>{NOME_GANHO} (BCC): R$ %{{customdata[3]:,.0f}}<extra></extra>',
                       marker_line_width=0)
     fig.update_yaxes(categoryorder='array', categoryarray=ranking['evento'].tolist())
     fig.update_layout(title='Ranking de eficiência', height=max(320, 28 * len(ranking)),
@@ -241,25 +243,27 @@ with aba_geral:
                       margin=dict(l=0, r=10, t=50, b=10))
     mostrar(fig)
 
-    ganhos = comp[comp[COL_GANHO] > 0].sort_values(COL_GANHO)
+    ganhos = comp[comp['ganho_bcc'] > 0].sort_values('ganho_bcc')
     if len(ganhos):
-        fig = px.bar(ganhos, x=COL_GANHO, y='evento', orientation='h', color='problema_principal',
+        fig = px.bar(ganhos, x='ganho_bcc', y='evento', orientation='h', color='problema_principal',
                      color_discrete_map=CORES, category_orders={'problema_principal': list(CORES)},
-                     custom_data=[COL_GANHO_PCT],
-                     labels={COL_GANHO: 'R$ por evento', 'evento': '', 'problema_principal': 'Diagnóstico'})
+                     custom_data=['ganho_bcc_%'],
+                     labels={'ganho_bcc': 'R$ por evento', 'evento': '', 'problema_principal': 'Diagnóstico'})
         base = 'do custo' if eh_input else 'da receita'
         fig.update_traces(hovertemplate=f'<b>%{{y}}</b><br>R$ %{{x:,.0f}} (%{{customdata[0]}}% {base})<extra></extra>',
                           marker_line_width=0)
         fig.update_yaxes(categoryorder='array', categoryarray=ganhos['evento'].tolist())
         fig.update_xaxes(tickformat=',.0f', tickprefix='R$ ')
-        fig.update_layout(title=f'Onde está o dinheiro: {NOME_GANHO.lower()} por evento (CCR)',
+        fig.update_layout(title=f'Onde está o dinheiro: {NOME_GANHO.lower()} só com gestão, por evento (BCC)',
                           height=max(260, 30 * len(ganhos)), bargap=0.25, margin=dict(l=0, r=10, t=50, b=10))
         mostrar(fig)
+        st.caption('BCC: o que cada evento ganharia só melhorando a gestão, sem mudar de tamanho. Eventos cujo '
+                   'problema é só o tamanho (diagnóstico "Escala" com BCC = 1) não aparecem aqui.')
 
     st.subheader('Tabela completa')
     st.dataframe(
         comp[['evento', 'CCR', 'BCC', 'escala', 'retorno', 'problema_principal', 'bcc_por_extremo',
-              'custo_atual', 'receita_atual', COL_GANHO, COL_GANHO_PCT, 'ganho_bcc']],
+              'custo_atual', 'receita_atual', 'ganho_bcc', 'ganho_bcc_%', COL_GANHO, COL_GANHO_PCT]],
         hide_index=True, width='stretch',
         column_config={
             'evento': 'Evento', 'retorno': 'Retorno de escala', 'problema_principal': 'Diagnóstico',
@@ -272,9 +276,15 @@ with aba_geral:
                                                  'menor para comparar). Ler com cuidado.'),
             'custo_atual': st.column_config.NumberColumn('Custo atual (R$)', format='localized'),
             'receita_atual': st.column_config.NumberColumn('Receita atual (R$)', format='localized'),
-            COL_GANHO: st.column_config.NumberColumn(f'{NOME_GANHO} CCR (R$)', format='localized'),
-            COL_GANHO_PCT: st.column_config.NumberColumn(f'{NOME_GANHO} CCR (%)', format='localized'),
-            'ganho_bcc': st.column_config.NumberColumn(f'{NOME_GANHO} BCC (R$)', format='localized'),
+            'ganho_bcc': st.column_config.NumberColumn(
+                f'{NOME_GANHO} BCC (R$)', format='localized',
+                help='Realista: só com gestão, mantendo o tamanho do evento.'),
+            'ganho_bcc_%': st.column_config.NumberColumn(f'{NOME_GANHO} BCC (%)', format='localized'),
+            COL_GANHO: st.column_config.NumberColumn(
+                'Teto teórico CCR (R$)', format='localized',
+                help='Supõe que o evento teria a produtividade dos maiores, mesmo sendo pequeno. Para eventos com '
+                     'problema de escala, só seria alcançável mudando o tamanho.'),
+            COL_GANHO_PCT: st.column_config.NumberColumn('Teto teórico CCR (%)', format='localized'),
         })
 
 
@@ -316,8 +326,9 @@ with aba_ficha:
     lista = sorted(no_dea[dea.COL_ID], key=lambda e: (len(e), e))
     col_a, col_b = st.columns([2, 1])
     evento = col_a.selectbox('Evento', lista)
-    modelo = col_b.radio('Metas pelo modelo', ['CCR', 'BCC'], horizontal=True,
-                         help='CCR: compara com todos os eventos. BCC: só com eventos de porte parecido.')
+    modelo = col_b.radio('Metas pelo modelo', ['BCC', 'CCR'], horizontal=True,
+                         help='BCC (padrão): compara só com eventos de porte parecido; meta realista. '
+                              'CCR: compara com todos, supondo que o evento poderia mudar de tamanho; meta teórica.')
     linha = resultado['comparacao'].set_index('evento').loc[evento]
     tabela_modelo = resultado[modelo.lower()].set_index('evento').loc[evento]
     dados_evento = no_dea.set_index(dea.COL_ID).loc[evento]
@@ -352,6 +363,10 @@ with aba_ficha:
     fig.update_layout(title=titulo, bargap=0.3, bargroupgap=0.08, legend_title_text='',
                       margin=dict(l=0, r=10, t=50, b=10))
     mostrar(fig)
+    if modelo == 'CCR':
+        st.caption('**Meta teórica (CCR):** supõe que o evento poderia ter a produtividade dos maiores encolhendo-os '
+                   'proporcionalmente, como se custos de estrutura e atração diminuíssem junto com o tamanho. Para metas '
+                   'alcançáveis só com gestão, use o BCC.')
     if eh_input:
         st.caption('A meta do DEA é matemática: ela não sabe que alguns custos têm piso (ex.: cachê mínimo de '
                    'atração). Se o corte sugerido for inviável, veja a pergunta "Output" na barra lateral.')
@@ -385,15 +400,16 @@ with aba_ficha:
 
 # ======================================================================= 3. gestão x escala
 with aba_escala:
-    comp = resultado['comparacao']
+    comp = resultado['comparacao'].copy()
+    comp['ganho_bcc'] = comp['evento'].map(resultado['bcc'].set_index('evento')[COL_GANHO])
     fig = px.scatter(comp, x='escala', y='BCC', color='problema_principal', size='custo_atual', size_max=38,
                      color_discrete_map=CORES, category_orders={'problema_principal': list(CORES)},
-                     hover_name='evento', custom_data=['CCR', 'retorno', COL_GANHO],
+                     hover_name='evento', custom_data=['CCR', 'retorno', 'ganho_bcc'],
                      labels={'escala': 'Eficiência de escala (tamanho)', 'BCC': 'Eficiência de gestão (BCC)',
                              'problema_principal': 'Diagnóstico'})
     fig.update_traces(hovertemplate='<b>%{hovertext}</b><br>Gestão (BCC): %{y:.3f}<br>Escala: %{x:.3f} '
                                     '(%{customdata[1]})<br>CCR: %{customdata[0]:.3f}<br>'
-                                    f'{NOME_GANHO}: R$ %{{customdata[2]:,.0f}}<extra></extra>',
+                                    f'{NOME_GANHO} (BCC): R$ %{{customdata[2]:,.0f}}<extra></extra>',
                       marker=dict(line=dict(width=2, color='white'), opacity=0.85))
     minimo = min(comp['escala'].min(), comp['BCC'].min()) - 0.03
     fig.update_layout(xaxis_range=[minimo, 1.01], yaxis_range=[minimo, 1.02], height=560,
